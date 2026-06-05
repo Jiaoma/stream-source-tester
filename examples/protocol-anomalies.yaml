@@ -1,0 +1,32 @@
+name: protocol-anomalies
+server:
+  rtspPort: 8554
+inputs:
+  - name: sample-mp4
+    kind: mp4
+    codec: h264
+    location: ./fixtures/sample.mp4
+outputs:
+  - name: rtsp-bad-play
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/bad-play
+    options:
+      methodStatus.PLAY: "454 Session Not Found"
+  - name: rtsp-bad-describe
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/bad-describe
+    options:
+      methodStatus.DESCRIBE: "453 Not Enough Bandwidth"
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: bad-play
+    input: sample-mp4
+    output: rtsp-bad-play
+    mutations: [passthrough]
+  - name: bad-describe
+    input: sample-mp4
+    output: rtsp-bad-describe
+    mutations: [passthrough]

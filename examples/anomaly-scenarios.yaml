@@ -1,0 +1,59 @@
+name: anomaly-scenarios
+server:
+  rtspPort: 8554
+inputs:
+  - name: sample-mp4
+    kind: mp4
+    codec: h264
+    location: ./fixtures/sample.mp4
+outputs:
+  - name: udp-out
+    kind: rtp-udp
+    target: 127.0.0.1:5004
+  - name: rtsp-out
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/test
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+  - name: marker-on
+    kind: set-marker
+    enabled: true
+    options:
+      value: "true"
+  - name: seq-plus-7
+    kind: rewrite-sequence
+    enabled: true
+    options:
+      offset: "7"
+  - name: ts-plus-900
+    kind: rewrite-timestamp
+    enabled: true
+    options:
+      offset: "900"
+  - name: drop-second
+    kind: drop-every-nth
+    enabled: true
+    options:
+      n: "2"
+  - name: reorder-first-two
+    kind: reorder-first-two
+    enabled: true
+profiles:
+  - name: normal-udp
+    input: sample-mp4
+    output: udp-out
+    mutations: [passthrough]
+  - name: marker-and-seq
+    input: sample-mp4
+    output: udp-out
+    mutations: [marker-on, seq-plus-7]
+  - name: timestamp-and-drop
+    input: sample-mp4
+    output: udp-out
+    mutations: [ts-plus-900, drop-second]
+  - name: reorder-over-rtsp
+    input: sample-mp4
+    output: rtsp-out
+    mutations: [reorder-first-two]

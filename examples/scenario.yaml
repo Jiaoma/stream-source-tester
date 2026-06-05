@@ -1,0 +1,34 @@
+name: basic-h264-demo
+server:
+  rtspPort: 8554
+inputs:
+  - name: sample-mp4
+    kind: mp4
+    codec: h264
+    location: ./fixtures/sample.mp4
+    options:
+      loop: "true"
+  - name: captured-pcap
+    kind: pcap
+    codec: h265
+    location: ./fixtures/sample.pcap
+outputs:
+  - name: local-rtsp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/test
+  - name: local-rtp
+    kind: rtp-udp
+    target: 127.0.0.1:5004
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: rtsp-standard
+    input: sample-mp4
+    output: local-rtsp
+    mutations: [passthrough]
+  - name: udp-capture
+    input: captured-pcap
+    output: local-rtp
+    mutations: []
