@@ -1,0 +1,21 @@
+name: quickstart-rtsp
+server:
+  rtspPort: 8554
+inputs:
+  - name: local-input
+    kind: mp4
+    codec: h264
+    location: ./fixtures/sample.mp4
+outputs:
+  - name: rtsp-out
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/test
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: normal-rtsp
+    input: local-input
+    output: rtsp-out
+    mutations: [passthrough]
