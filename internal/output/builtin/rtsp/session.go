@@ -1,5 +1,7 @@
 package rtsp
 
+import "os/exec"
+
 type sessionState struct {
 	described bool
 	setupDone bool
@@ -7,4 +9,5 @@ type sessionState struct {
 	tornDown  bool
 	rtpTarget string
 	transport *transportInfo
+	ffmpeg    *exec.Cmd
 }

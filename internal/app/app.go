@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"strings"
+	"time"
 
 	_ "stream-source-tester/internal/builtins"
 	"stream-source-tester/internal/config"
@@ -38,9 +40,12 @@ func Run(ctx context.Context, out io.Writer, configPath string) error {
 	if err != nil {
 		return err
 	}
+	if err := verifyRTSPListeners(manager); err != nil {
+		return err
+	}
 
 	_, err = fmt.Fprintf(out,
-		"loaded scenario %q with %d input(s), %d output(s), %d mutation profile(s)\nregistered inputs: %v\nregistered outputs: %v\nregistered mutators: %v\nprofiles:\n%sbundles:\n%soutputs:\n%s",
+		"loaded scenario %q with %d input(s), %d output(s), %d mutation profile(s)\nregistered inputs: %v\nregistered outputs: %v\nregistered mutators: %v\nprofiles:\n%sbundles:\n%soutputs:\n%s\nwaiting for interrupt to stop sessions...\n",
 		cfg.Name,
 		len(cfg.Inputs),
 		len(cfg.Outputs),
@@ -52,7 +57,12 @@ func Run(ctx context.Context, out io.Writer, configPath string) error {
 		formatBundles(bundles),
 		formatManager(manager),
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	<-ctx.Done()
+	return manager.CloseAll()
 }
 
 func ServeProfiles(ctx context.Context, cfg *config.Config, plan *model.ScenarioPlan, bundles map[string]*model.SessionBundle) (*output.Manager, error) {
@@ -336,8 +346,46 @@ func formatManager(manager *output.Manager) string {
 			runtime.State,
 			runtime.Timeline,
 		))
+		if runtime.SinkKind == "rtsp" {
+			listen := runtime.Details["listen_address"]
+			mount := runtime.Details["mount_path"]
+			if listen != "" && mount != "" {
+				builder.WriteString(fmt.Sprintf("    open in VLC: rtsp://%s/%s\n", listen, mount))
+			}
+		}
 	}
 	return builder.String()
+}
+
+func verifyRTSPListeners(manager *output.Manager) error {
+	if manager == nil {
+		return nil
+	}
+	for profile, session := range manager.List() {
+		runtime := session.Result()
+		if runtime.SinkKind != "rtsp" {
+			continue
+		}
+		listen := runtime.Details["listen_address"]
+		if listen == "" {
+			return fmt.Errorf("rtsp session %q has no listen address", profile)
+		}
+		var lastErr error
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			conn, err := net.DialTimeout("tcp", listen, 100*time.Millisecond)
+			if err == nil {
+				_ = conn.Close()
+				break
+			}
+			lastErr = err
+			if time.Now().After(deadline) {
+				return fmt.Errorf("rtsp session %q not reachable on %s: %w", profile, listen, lastErr)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	return nil
 }
 
 func cloneMap(values map[string]string) map[string]string {

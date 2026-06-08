@@ -128,26 +128,38 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 				}
 				state.playing = true
 				_, _ = conn.Write([]byte(okResponseFor(req, bundle, sessionID)))
-				if state.transport != nil {
-					if state.transport.LowerTransport == "tcp" {
-						channel := state.transport.Interleaved
-						if channel == "" {
-							channel = "0-1"
-						}
-						sendInterleavedOnce(conn, bundle, channel)
-						continue
+				if state.transport != nil && state.transport.LowerTransport == "tcp" {
+					channel := state.transport.Interleaved
+					if channel == "" {
+						channel = "0-1"
 					}
+					sendInterleavedOnce(conn, bundle, channel)
+					continue
 				}
 				target := state.rtpTarget
 				if target == "" {
 					target = cfg.Options["rtpTarget"]
 				}
 				if target != "" {
+					if bundle.Metadata["source.kind"] == "mp4" && bundle.Metadata["mutation.names"] == "passthrough" {
+						if sourcePath := bundle.Metadata["source.location"]; sourcePath != "" {
+							cmd, err := startFFMPEGRTP(sourcePath, target)
+							if err == nil {
+								state.ffmpeg = cmd
+								continue
+							}
+						}
+					}
 					sendTimelineOnce(bundle, target)
 				}
 			case "TEARDOWN":
 				state.tornDown = true
 				_, _ = conn.Write([]byte(okResponseFor(req, bundle, sessionID)))
+				if state.ffmpeg != nil && state.ffmpeg.Process != nil {
+					_ = state.ffmpeg.Process.Kill()
+					_, _ = state.ffmpeg.Process.Wait()
+					state.ffmpeg = nil
+				}
 				session.SetState(output.StateStopped)
 				_ = session.Close()
 				return

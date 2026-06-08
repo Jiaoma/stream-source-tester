@@ -5,7 +5,7 @@ inputs:
   - name: local-input
     kind: mp4
     codec: h264
-    location: ./fixtures/sample.mp4
+    location: ./fixtures/ula.mp4
 outputs:
   - name: rtsp-out
     kind: rtsp

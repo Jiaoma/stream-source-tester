@@ -67,6 +67,9 @@ func (m *Manager) Close(profile string) error {
 func (m *Manager) CloseAll() error {
 	for profile, session := range m.byProfile {
 		if err := session.Close(); err != nil {
+			if err.Error() == fmt.Sprintf("session %q already stopped", session.Result().SessionID) {
+				continue
+			}
 			return fmt.Errorf("close profile %q: %w", profile, err)
 		}
 	}

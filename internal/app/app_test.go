@@ -1,12 +1,116 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"stream-source-tester/internal/config"
+	rtsptest "stream-source-tester/internal/output/builtin/rtsp"
 )
+
+func TestRunBlocksUntilContextCancelled(t *testing.T) {
+	fixturePath, err := filepath.Abs(filepath.Join("..", "..", "fixtures", "sample.mp4"))
+	if err != nil {
+		t.Fatalf("Abs() error = %v", err)
+	}
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "quickstart.yaml")
+	configContent := []byte("name: quickstart-rtsp\ninputs:\n  - name: local-input\n    kind: mp4\n    codec: h264\n    location: " + fixturePath + "\noutputs:\n  - name: rtsp-out\n    kind: rtsp\n    target: rtsp://127.0.0.1:0/test\nmutations:\n  - name: passthrough\n    kind: identity\n    enabled: true\nprofiles:\n  - name: normal-rtsp\n    input: local-input\n    output: rtsp-out\n    mutations: [passthrough]\n")
+	if err := os.WriteFile(configPath, configContent, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, &out, configPath)
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("Run() returned too early: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() after cancel error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Run() did not exit after context cancellation")
+	}
+}
+
+func TestRunListensOnConfiguredRTSPPort(t *testing.T) {
+	rtsptest.ResetListenerRegistryForTest()
+
+	fixturePath, err := filepath.Abs(filepath.Join("..", "..", "fixtures", "sample.mp4"))
+	if err != nil {
+		t.Fatalf("Abs() error = %v", err)
+	}
+	portProbe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	_, port, err := net.SplitHostPort(portProbe.Addr().String())
+	if err != nil {
+		_ = portProbe.Close()
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	_ = portProbe.Close()
+
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "listen.yaml")
+	configContent := []byte("name: listen-check\ninputs:\n  - name: local-input\n    kind: mp4\n    codec: h264\n    location: " + fixturePath + "\noutputs:\n  - name: rtsp-out\n    kind: rtsp\n    target: rtsp://127.0.0.1:" + port + "/test\nmutations:\n  - name: passthrough\n    kind: identity\n    enabled: true\nprofiles:\n  - name: normal-rtsp\n    input: local-input\n    output: rtsp-out\n    mutations: [passthrough]\n")
+	if err := os.WriteFile(configPath, configContent, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, &out, configPath)
+	}()
+
+	listenTarget := "127.0.0.1:" + port
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", listenTarget, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatalf("RTSP port 8554 was not listening before deadline: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() after cancel error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Run() did not exit after cancellation")
+	}
+}
 
 func TestBuildPlanResolvesProfiles(t *testing.T) {
 	t.Parallel()
