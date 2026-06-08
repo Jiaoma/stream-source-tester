@@ -499,6 +499,56 @@ func TestInvalidTransportReturns400(t *testing.T) {
 	}
 }
 
+func TestVLCStyleOptionsRequestReturns200(t *testing.T) {
+	t.Parallel()
+
+	bundle := model.NewMinimalSessionBundle("vlc-style", model.CodecH264, "mp4", "./sample.mp4", nil)
+	session, err := (&Sink{}).Serve(context.Background(), bundle, config.OutputConfig{
+		Name:   "vlc-style",
+		Kind:   "rtsp",
+		Target: "rtsp://127.0.0.1:0/test",
+	})
+	if err != nil {
+		t.Fatalf("Serve() error = %v", err)
+	}
+	defer session.Close()
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	var addr string
+	for {
+		current := session.Result()
+		if current.State == "serving" {
+			addr = current.Details["listen_address"]
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("runtime.State did not transition to serving, last=%q", current.State)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("DialTimeout() error = %v", err)
+	}
+	defer conn.Close()
+	buf := make([]byte, 1024)
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+
+	request := "OPTIONS rtsp://127.0.0.1:8554/test RTSP/1.0\r\nCSeq: 2\r\nUser-Agent: LibVLC/3.0.23\r\n\r\n"
+	if _, err := conn.Write([]byte(request)); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	n, err := conn.Read(buf)
+	if err != nil && err != io.EOF {
+		t.Fatalf("Read() error = %v", err)
+	}
+	response := string(buf[:n])
+	if !strings.Contains(response, "RTSP/1.0 200 OK") {
+		t.Fatalf("response = %q, want 200 OK", response)
+	}
+}
+
 type outputRuntime struct {
 	addr string
 }

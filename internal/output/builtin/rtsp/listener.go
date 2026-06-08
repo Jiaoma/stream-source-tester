@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
 	"sync"
 )
@@ -32,7 +33,7 @@ func getOrCreateListener(ctx context.Context, addr string) (*sharedListener, err
 	defer registryMu.Unlock()
 
 	for _, sl := range listenerRegistry {
-		if sl.addr == addr || addr == "" || strings.HasPrefix(addr, ":") {
+		if sl.addr == addr {
 			return sl, nil
 		}
 	}
@@ -156,6 +157,13 @@ func (p *prependConn) Read(b []byte) (n int, err error) {
 }
 
 func extractMountPath(uri string) string {
+	if parsed, err := url.Parse(uri); err == nil && parsed.Path != "" {
+		path := strings.TrimPrefix(parsed.Path, "/")
+		if slash := strings.IndexByte(path, '/'); slash >= 0 {
+			return path[:slash]
+		}
+		return path
+	}
 	if strings.HasPrefix(uri, "rtsp://") {
 		withoutScheme := strings.TrimPrefix(uri, "rtsp://")
 		if slash := strings.IndexByte(withoutScheme, '/'); slash >= 0 {
