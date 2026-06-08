@@ -197,7 +197,21 @@ func TestInstantiateProfilesAppliesMutations(t *testing.T) {
 func TestServeProfilesMarksServedMetadata(t *testing.T) {
 	t.Parallel()
 
-	cfg := testConfig()
+	portProbe, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	_, port, err := net.SplitHostPort(portProbe.Addr().String())
+	if err != nil {
+		_ = portProbe.Close()
+		t.Fatalf("SplitHostPort() error = %v", err)
+	}
+	_ = portProbe.Close()
+
+	cfg := testConfigWithMutationsOnTarget("rtsp://127.0.0.1:" + port + "/test", []config.MutationConfig{
+		{Name: "marker-on", Kind: "set-marker", Enabled: true, Options: map[string]string{"value": "true"}},
+		{Name: "drop-all", Kind: "drop-packets", Enabled: true},
+	})
 	plan, err := BuildPlan(cfg)
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -221,8 +235,9 @@ func TestServeProfilesMarksServedMetadata(t *testing.T) {
 	if runtime.SinkKind != "rtsp" {
 		t.Fatalf("runtime.SinkKind = %q, want rtsp", runtime.SinkKind)
 	}
-	if runtime.Target != "rtsp://127.0.0.1:8554/test" {
-		t.Fatalf("runtime.Target = %q, want rtsp://127.0.0.1:8554/test", runtime.Target)
+	expectedTarget := "rtsp://127.0.0.1:" + port + "/test"
+	if runtime.Target != expectedTarget {
+		t.Fatalf("runtime.Target = %q, want %q", runtime.Target, expectedTarget)
 	}
 	if runtime.State != "ready" && runtime.State != "serving" {
 		t.Fatalf("initial runtime.State = %q, want ready or serving", runtime.State)
@@ -270,8 +285,8 @@ func TestServeProfilesMarksServedMetadata(t *testing.T) {
 	if got := bundle.Metadata["served.by"]; got != "rtsp" {
 		t.Fatalf("served.by metadata = %q, want rtsp", got)
 	}
-	if got := bundle.Metadata["served.target"]; got != "rtsp://127.0.0.1:8554/test" {
-		t.Fatalf("served.target metadata = %q, want rtsp://127.0.0.1:8554/test", got)
+	if got := bundle.Metadata["served.target"]; got != expectedTarget {
+		t.Fatalf("served.target metadata = %q, want %q", got, expectedTarget)
 	}
 	if got := bundle.Metadata["served.timeline"]; got != "0" {
 		t.Fatalf("served.timeline metadata = %q, want 0", got)
@@ -337,13 +352,17 @@ func TestInstantiateProfilesAppliesMutationCombination(t *testing.T) {
 }
 
 func testConfig() *config.Config {
-	return testConfigWithMutations([]config.MutationConfig{
+	return testConfigWithMutationsOnTarget("rtsp://127.0.0.1:8554/test", []config.MutationConfig{
 		{Name: "marker-on", Kind: "set-marker", Enabled: true, Options: map[string]string{"value": "true"}},
 		{Name: "drop-all", Kind: "drop-packets", Enabled: true},
 	})
 }
 
 func testConfigWithMutations(mutations []config.MutationConfig) *config.Config {
+	return testConfigWithMutationsOnTarget("rtsp://127.0.0.1:8554/test", mutations)
+}
+
+func testConfigWithMutationsOnTarget(target string, mutations []config.MutationConfig) *config.Config {
 	cfg := &config.Config{
 		Name: "demo",
 		Inputs: []config.InputConfig{
@@ -361,7 +380,7 @@ func testConfigWithMutations(mutations []config.MutationConfig) *config.Config {
 			{
 				Name:   "local-rtsp",
 				Kind:   "rtsp",
-				Target: "rtsp://127.0.0.1:8554/test",
+				Target: target,
 			},
 		},
 		Mutations: mutations,

@@ -137,6 +137,8 @@ go build ./cmd/stream-source-tester
 
 ### 4. 用 VLC 播放
 
+> 当前仓库已经验证过：**本地 MP4 + `examples/quickstart-rtsp.yaml` + VLC** 这条正常播放路径是可用的。
+
 在 VLC 中打开下面这个 URL：
 
 ```text
@@ -149,7 +151,7 @@ rtsp://127.0.0.1:8554/test
 
 ## 快速测试用的最小示例
 
-最简单的直接运行方式就是：
+最简单、当前最推荐、并且已经用 VLC 验证通过的运行方式就是：
 
 ```bash
 go run ./cmd/stream-source-tester -config ./examples/quickstart-rtsp.yaml
@@ -165,7 +167,13 @@ rtsp://127.0.0.1:8554/test
 
 - `examples/quickstart-rtsp.yaml`
 
-把其中的 `location` 改成你自己的本地 MP4 或 PCAP 路径。
+把其中的 `location` 改成你自己的本地 MP4 路径。
+
+如果你要做协议回放或异常测试，也可以使用：
+
+- `examples/quickstart-pcap-rtsp.yaml`
+
+但当前**最适合播放器正常播放验证**的路径仍然是 MP4 -> RTSP。
 
 ---
 

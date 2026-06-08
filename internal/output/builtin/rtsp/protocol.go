@@ -87,7 +87,10 @@ func okResponseFor(req *request, bundle *model.SessionBundle, sessionID string) 
 			"Public": "OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN",
 		}, "")
 	case "DESCRIBE":
-		sdp := buildSDP(bundle)
+		sdp := maybeGenerateSDPFromSource(bundle)
+		if sdp == "" {
+			sdp = buildSDP(bundle)
+		}
 		return responseFor(req, sessionID, "RTSP/1.0 200 OK", map[string]string{
 			"Content-Type":   "application/sdp",
 			"Content-Length": fmt.Sprintf("%d", len(sdp)),
