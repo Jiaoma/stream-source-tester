@@ -5,18 +5,22 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"stream-source-tester/internal/model"
 )
 
 type request struct {
-	Method    string
-	URI       string
-	Proto     string
-	CSeq      string
-	Transport string
-	Session   string
+	Method        string
+	URI           string
+	Proto         string
+	CSeq          string
+	Transport     string
+	Session       string
+	Authorization string
+	ContentLength int
+	Body          string
 }
 
 func readRequest(r io.Reader) (*request, error) {
@@ -47,15 +51,31 @@ func readRequestFromReader(reader *bufio.Reader) (*request, error) {
 		if !ok {
 			continue
 		}
+		value = strings.TrimSpace(value)
 		switch strings.ToLower(strings.TrimSpace(key)) {
 		case "cseq":
-			req.CSeq = strings.TrimSpace(value)
+			req.CSeq = value
 		case "transport":
-			req.Transport = strings.TrimSpace(value)
+			req.Transport = value
 		case "session":
-			req.Session = strings.TrimSpace(value)
+			req.Session = value
+		case "authorization":
+			req.Authorization = value
+		case "content-length":
+			if n, err := strconv.Atoi(value); err == nil {
+				req.ContentLength = n
+			}
 		}
 	}
+
+	if req.ContentLength > 0 {
+		body := make([]byte, req.ContentLength)
+		if _, err := io.ReadFull(reader, body); err != nil {
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+		req.Body = string(body)
+	}
+
 	return req, nil
 }
 
@@ -84,7 +104,7 @@ func okResponseFor(req *request, bundle *model.SessionBundle, sessionID string) 
 	switch req.Method {
 	case "OPTIONS":
 		return responseFor(req, sessionID, "RTSP/1.0 200 OK", map[string]string{
-			"Public": "OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN",
+			"Public": "OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, GET_PARAMETER, SET_PARAMETER",
 		}, "")
 	case "DESCRIBE":
 		sdp := maybeGenerateSDPFromSource(bundle)
