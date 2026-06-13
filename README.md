@@ -137,6 +137,8 @@ go build ./cmd/stream-source-tester
 
 ### 4. 用 VLC 播放
 
+> 当前仓库已经验证过：**本地 MP4 + `examples/quickstart-rtsp.yaml` + VLC** 这条正常播放路径是可用的。
+
 在 VLC 中打开下面这个 URL：
 
 ```text
@@ -149,7 +151,7 @@ rtsp://127.0.0.1:8554/test
 
 ## 快速测试用的最小示例
 
-最简单的直接运行方式就是：
+最简单、当前最推荐、并且已经用 VLC 验证通过的运行方式就是：
 
 ```bash
 go run ./cmd/stream-source-tester -config ./examples/quickstart-rtsp.yaml
@@ -165,7 +167,13 @@ rtsp://127.0.0.1:8554/test
 
 - `examples/quickstart-rtsp.yaml`
 
-把其中的 `location` 改成你自己的本地 MP4 或 PCAP 路径。
+把其中的 `location` 改成你自己的本地 MP4 路径。
+
+如果你要做协议回放或异常测试，也可以使用：
+
+- `examples/quickstart-pcap-rtsp.yaml`
+
+但当前**最适合播放器正常播放验证**的路径仍然是 MP4 -> RTSP。
 
 ---
 
@@ -180,6 +188,9 @@ rtsp://127.0.0.1:8554/test
    - `SETUP`
    - `PLAY`
    - `TEARDOWN`
+   - `GET_PARAMETER`
+   - `SET_PARAMETER`
+   - Basic 鉴权登录（可选开启）
 3. RTP 数据面已经支持：
    - timeline 调度发送
    - RTP/UDP 真实发包
@@ -189,6 +200,57 @@ rtsp://127.0.0.1:8554/test
    - 最小播放器连通性验证
    - mutation / 异常场景测试
 5. 当前还不是“完整解码器级视频服务器”，所以不同播放器对媒体内容的容忍度可能不同。
+
+---
+
+## 虚拟相机（鉴权 + 参数协商）
+
+除了普通流源，本项目也可以把一个 MP4/PCAP 包装成“虚拟相机”：对外提供需要登录的 RTSP 服务，并支持参数获取/设置。
+
+示例配置：
+
+- `examples/virtual-camera-rtsp.yaml`
+
+它在 RTSP output 的 `options` 中开启了 Basic 鉴权：
+
+```yaml
+outputs:
+  - name: camera-rtsp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/camera
+    options:
+      auth.mode: basic
+      auth.username: admin
+      auth.password: secret
+      auth.realm: virtual-camera
+```
+
+行为说明：
+
+- `OPTIONS` 允许匿名，方便客户端发现能力。
+- `DESCRIBE` / `SETUP` / `PLAY` / `SET_PARAMETER` / `GET_PARAMETER` 需要鉴权。
+- 未鉴权或鉴权失败会返回 `401 Unauthorized`，并带 `WWW-Authenticate: Basic realm="..."`。
+- `SET_PARAMETER`：
+  - 空 body 当作 keepalive，返回 `200 OK`。
+  - 形如 `framerate: 30` 的赋值会被记录到会话参数。
+  - 不在允许列表内的参数返回 `451 Parameter Not Understood`。
+  - 当前允许的参数：`framerate` / `bitrate` / `resolution` / `gop` / `brightness` / `contrast`。
+- `GET_PARAMETER`：
+  - 空 body 当作 keepalive。
+  - 查询已知参数会在响应 body 中回显当前值。
+
+启动虚拟相机：
+
+```bash
+go run ./cmd/stream-source-tester -config ./examples/virtual-camera-rtsp.yaml
+```
+
+用 VLC 打开（带凭据）：
+
+```text
+rtsp://admin:secret@127.0.0.1:8554/camera
+```
+
 
 ---
 

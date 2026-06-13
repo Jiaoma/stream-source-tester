@@ -79,6 +79,7 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 		},
 	})
 
+	auth := loadAuthConfig(cfg)
 	handler := func(conn net.Conn) {
 		defer conn.Close()
 		reader := bufio.NewReader(conn)
@@ -99,6 +100,10 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 			}
 			if statusLine, ok := configuredStatusLine(cfg, req.Method); ok {
 				_, _ = conn.Write([]byte(responseFor(req, sessionID, statusLine, nil, "")))
+				continue
+			}
+			if auth.enabled() && requiresAuth(req.Method) && !auth.checkBasicAuth(req.Authorization) {
+				_, _ = conn.Write([]byte(responseFor(req, sessionID, "RTSP/1.0 401 Unauthorized", auth.challengeHeader(), "")))
 				continue
 			}
 
@@ -163,6 +168,22 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 				session.SetState(output.StateStopped)
 				_ = session.Close()
 				return
+			case "SET_PARAMETER":
+				stored, unsupported := applySetParameter(state, req.Body)
+				if unsupported != "" {
+					_, _ = conn.Write([]byte(responseFor(req, sessionID, "RTSP/1.0 451 Parameter Not Understood", nil, "")))
+					continue
+				}
+				_ = stored
+				_, _ = conn.Write([]byte(responseFor(req, sessionID, "RTSP/1.0 200 OK", nil, "")))
+			case "GET_PARAMETER":
+				body := buildGetParameterBody(state, req.Body)
+				headers := map[string]string{}
+				if body != "" {
+					headers["Content-Type"] = "text/parameters"
+					headers["Content-Length"] = strconv.Itoa(len(body))
+				}
+				_, _ = conn.Write([]byte(responseFor(req, sessionID, "RTSP/1.0 200 OK", headers, body)))
 			default:
 				_, _ = conn.Write([]byte(okResponseFor(req, bundle, sessionID)))
 			}
