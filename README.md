@@ -251,6 +251,47 @@ go run ./cmd/stream-source-tester -config ./examples/virtual-camera-rtsp.yaml
 rtsp://admin:secret@127.0.0.1:8554/camera
 ```
 
+### 基于 pcap 的虚拟相机
+
+如果你有真实相机的 tcpdump 抓包文件，也可以用它创建虚拟相机：
+
+示例配置：
+
+- `examples/virtual-camera-pcap.yaml`
+
+它的输入是 pcap 文件：
+
+```yaml
+inputs:
+  - name: camera-pcap-input
+    kind: pcap
+    codec: h264
+    location: ./fixtures/your-camera-dump.pcap
+```
+
+使用方式：
+
+1. 用 `tcpdump` 或 Wireshark 抓取真实相机的 RTP/RTSP 流量：
+   ```bash
+   tcpdump -i en0 -w camera-dump.pcap host <camera-ip>
+   ```
+
+2. 把 pcap 文件放到 `fixtures/` 或任意路径。
+
+3. 修改 `examples/virtual-camera-pcap.yaml` 的 `location` 指向你的 pcap 文件。
+
+4. 启动虚拟相机：
+   ```bash
+   go run ./cmd/stream-source-tester -config ./examples/virtual-camera-pcap.yaml
+   ```
+
+5. 用 VLC 带凭据连接：
+   ```text
+   rtsp://camera:secret@127.0.0.1:8555/camera
+   ```
+
+这样你就可以把真实相机的抓包"重放"成一个带鉴权的虚拟 RTSP 相机，用于测试客户端的鉴权、重连、参数协商等行为。
+
 
 ---
 

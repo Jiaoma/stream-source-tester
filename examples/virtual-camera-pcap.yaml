@@ -1,0 +1,28 @@
+name: virtual-camera-pcap
+server:
+  rtspPort: 8555
+inputs:
+  - name: camera-pcap-input
+    kind: pcap
+    codec: h264
+    location: ./fixtures/sample.pcap
+outputs:
+  - name: camera-pcap-rtsp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/camera
+    options:
+      auth.mode: basic
+      auth.username: camera
+      auth.password: secret
+      auth.realm: pcap-virtual-camera
+      camera.vendor: tcpdump-replay
+      camera.model: pcap-cam-1
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: pcap-camera
+    input: camera-pcap-input
+    output: camera-pcap-rtsp
+    mutations: [passthrough]
