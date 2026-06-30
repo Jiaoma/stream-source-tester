@@ -40,7 +40,6 @@ func (s *Source) Open(ctx context.Context, cfg config.InputConfig) (*model.Sessi
 	)
 	bundle.Transport = []model.Protocol{model.ProtocolRTSP, model.ProtocolRTPUDP}
 	bundle.Metadata["source.format"] = "capture/pcap"
-	bundle.Metadata["bundle.mode"] = "probed-from-capture"
 	bundle.Metadata["probe.file_size"] = strconv.FormatInt(info.Size, 10)
 	bundle.Metadata["probe.magic"] = fmt.Sprintf("0x%08x", parsed.Magic)
 	bundle.Metadata["probe.endian"] = parsed.Endian
@@ -48,5 +47,22 @@ func (s *Source) Open(ctx context.Context, cfg config.InputConfig) (*model.Sessi
 	bundle.Metadata["probe.version_minor"] = strconv.FormatUint(uint64(parsed.VersionMinor), 10)
 	bundle.Metadata["probe.snaplen"] = strconv.FormatUint(uint64(parsed.SnapLen), 10)
 	bundle.Metadata["probe.linktype"] = strconv.FormatUint(uint64(parsed.LinkType), 10)
+
+	// Attempt to read RTP packets from the pcap file and build a real timeline.
+	// If this fails (e.g., no RTP packets, unsupported format), fall back to
+	// the minimal bundle with a single placeholder packet.
+	if packets, err := ReadRTPPackets(cfg.Location); err == nil {
+		// Successfully extracted RTP packets - build full timeline
+		rtpBundle, err := BuildSessionBundleFromPackets(packets, cfg.Name)
+		if err == nil {
+			bundle = rtpBundle
+			bundle.Transport = []model.Protocol{model.ProtocolRTSP, model.ProtocolRTPUDP}
+		}
+	} else {
+		// Could not read RTP packets - keep minimal bundle, note the reason
+		bundle.Metadata["pcap.rtp_parse_error"] = err.Error()
+		bundle.Metadata["bundle.mode"] = "probed-from-capture"
+	}
+
 	return bundle, nil
 }

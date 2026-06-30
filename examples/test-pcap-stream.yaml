@@ -1,0 +1,21 @@
+name: test-pcap-stream
+server:
+  rtspPort: 8555
+inputs:
+  - name: pcap-input
+    kind: pcap
+    codec: h264
+    location: ./fixtures/ffmpeg_rtp_120s_v2.pcap
+outputs:
+  - name: rtsp-out
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/test
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: pcap-stream
+    input: pcap-input
+    output: rtsp-out
+    mutations: [passthrough]

@@ -1,0 +1,21 @@
+name: test-full-playback
+server:
+  rtspPort: 8555
+inputs:
+  - name: long-video
+    kind: mp4
+    codec: h264
+    location: ./fixtures/test_long.mp4
+outputs:
+  - name: rtsp-out
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/test
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: full-stream
+    input: long-video
+    output: rtsp-out
+    mutations: [passthrough]

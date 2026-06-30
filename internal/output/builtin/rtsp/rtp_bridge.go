@@ -1,13 +1,17 @@
 package rtsp
 
 import (
+	"context"
 	"net"
 	"time"
 
 	"stream-source-tester/internal/model"
 )
 
-func sendTimelineOnce(bundle *model.SessionBundle, target string) {
+// sendTimeline loops continuously, sending timeline packets at their original timing
+// and repeating when finished (simulating a live camera stream).
+// It only returns when the context is cancelled.
+func sendTimeline(ctx context.Context, bundle *model.SessionBundle, target string) {
 	if len(bundle.Streams) == 0 || len(bundle.Timeline) == 0 {
 		return
 	}
@@ -22,14 +26,40 @@ func sendTimelineOnce(bundle *model.SessionBundle, target string) {
 	defer conn.Close()
 
 	stream := bundle.Streams[0]
-	start := time.Now()
-	for _, event := range bundle.Timeline {
-		wait := event.EmittedAt - time.Since(start)
-		if wait > 0 {
-			time.Sleep(wait)
+
+	for {
+		start := time.Now()
+
+		for _, event := range bundle.Timeline {
+			// Check for cancellation
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			wait := event.EmittedAt - time.Since(start)
+			if wait > 0 {
+				time.Sleep(wait)
+			}
+
+			packet := encodeBridgePacket(stream, event)
+			_, err := conn.Write(packet)
+			if err != nil {
+				return
+			}
 		}
-		packet := encodeBridgePacket(stream, event)
-		_, _ = conn.Write(packet)
+
+		// After one loop through the timeline, wait briefly before repeating
+		// to avoid busy-looping.
+		// Find the last packet's EmittedAt to know total duration
+		if len(bundle.Timeline) > 0 {
+			lastEmitted := bundle.Timeline[len(bundle.Timeline)-1].EmittedAt
+			elapsed := time.Since(start)
+			if remaining := lastEmitted - elapsed; remaining > 0 {
+				time.Sleep(remaining)
+			}
+		}
 	}
 }
 

@@ -155,7 +155,7 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 							}
 						}
 					}
-					sendTimelineOnce(bundle, target)
+					sendTimeline(ctx, bundle, target)
 				}
 			case "TEARDOWN":
 				state.tornDown = true

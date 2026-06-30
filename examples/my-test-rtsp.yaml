@@ -1,0 +1,21 @@
+name: my-test-rtsp
+server:
+  rtspPort: 8554
+inputs:
+  - name: test-video
+    kind: mp4
+    codec: h264
+    location: ./fixtures/test_video.mp4
+outputs:
+  - name: rtsp-out
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/test
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: normal-stream
+    input: test-video
+    output: rtsp-out
+    mutations: [passthrough]

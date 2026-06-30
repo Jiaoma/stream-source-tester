@@ -1,2 +1,5 @@
 .DS_Store
 fixtures/ula.mp4
+*.pcap
+*.mp4
+stream-source-tester

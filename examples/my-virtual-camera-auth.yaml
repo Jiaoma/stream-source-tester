@@ -1,0 +1,26 @@
+name: my-virtual-camera-auth
+server:
+  rtspPort: 8558
+inputs:
+  - name: test-video
+    kind: mp4
+    codec: h264
+    location: ./fixtures/test_video.mp4
+outputs:
+  - name: camera-auth
+    kind: rtsp
+    target: rtsp://127.0.0.1:8558/camera
+    options:
+      auth.mode: basic
+      auth.username: admin
+      auth.password: secret123
+      auth.realm: TestCamera
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+profiles:
+  - name: auth-camera
+    input: test-video
+    output: camera-auth
+    mutations: [passthrough]
