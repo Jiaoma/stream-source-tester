@@ -146,6 +146,7 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 					target = cfg.Options["rtpTarget"]
 				}
 				if target != "" {
+					loopPlayback := strings.ToLower(cfg.Options["playback.loop"]) != "false"
 					if bundle.Metadata["source.kind"] == "mp4" && bundle.Metadata["mutation.names"] == "passthrough" {
 						if sourcePath := bundle.Metadata["source.location"]; sourcePath != "" {
 							cmd, err := startFFMPEGRTP(sourcePath, target)
@@ -155,7 +156,10 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 							}
 						}
 					}
-					sendTimeline(ctx, bundle, target)
+					sendTimeline(ctx, bundle, target, loopPlayback)
+					if !loopPlayback {
+						return
+					}
 				}
 			case "TEARDOWN":
 				state.tornDown = true

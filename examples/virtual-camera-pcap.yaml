@@ -5,7 +5,7 @@ inputs:
   - name: camera-pcap-input
     kind: pcap
     codec: h264
-    location: ./fixtures/sample.pcap
+    location: ./fixtures/test_rtp_10s.pcap
 outputs:
   - name: camera-pcap-rtsp
     kind: rtsp
@@ -15,6 +15,7 @@ outputs:
       auth.username: camera
       auth.password: secret
       auth.realm: pcap-virtual-camera
+      playback.loop: false
       camera.vendor: tcpdump-replay
       camera.model: pcap-cam-1
 mutations:

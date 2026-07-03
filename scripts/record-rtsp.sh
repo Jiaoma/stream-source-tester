@@ -3,8 +3,6 @@
 # 用法: 
 #   ./scripts/record-rtsp.sh rtsp://IP:PORT/path [输出MP4] [录制秒数]
 #   ./scripts/record-rtsp.sh rtsp://IP:PORT/path [输出MP4] [录制秒数] replay
-# 
-# sudo 密码: yahboom
 
 set -e
 
@@ -21,7 +19,7 @@ if [ -z "$RTSP_URL" ]; then
 fi
 
 WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SUDOPASS="yahboom"
+. "$WORK_DIR/scripts/lib.sh"
 
 echo "=============================================="
 echo "RTSP 流录制工具"
@@ -34,14 +32,17 @@ echo "=============================================="
 
 # 清理
 pkill -9 stream-source 2>/dev/null || true
-fuser -k 8554/tcp 8555/tcp 2>/dev/null || true
+if is_root; then
+    stop_port_listener 8554
+    stop_port_listener 8555
+fi
 sleep 1
 
 mkdir -p "$(dirname "$OUTPUT_MP4")"
 
 # 步骤1: 探测流信息
 echo "[1/3] 探测流信息..."
-PROBE_OUTPUT=$(timeout 10 ffprobe -v quiet -show_streams -show_format "$RTSP_URL" 2>&1) || {
+PROBE_OUTPUT=$(run_with_timeout 10 ffprobe -v quiet -show_streams -show_format "$RTSP_URL" 2>&1) || {
     echo "[ERROR] 无法连接到 RTSP 流，请检查 URL 是否正确"
     echo "提示: 如果需要鉴权，使用格式: rtsp://user:pass@host:port/path"
     exit 1
@@ -57,7 +58,10 @@ echo "      帧率: $FPS"
 
 # 步骤2: 录制
 echo "[2/3] 开始录制 (${DURATION}秒)..."
-echo "$SUDOPASS" | sudo -S fuser -k $((8554))/tcp $((8555))/tcp 2>/dev/null || true
+if is_root; then
+    stop_port_listener 8554
+    stop_port_listener 8555
+fi
 
 ffmpeg -rtsp_transport udp \
        -i "$RTSP_URL" \
@@ -66,13 +70,13 @@ ffmpeg -rtsp_transport udp \
        -y "$OUTPUT_MP4" \
        2>&1 | tail -5
 
-if [ ! -f "$OUTPUT_MP4" ] || [ $(stat -c%s "$OUTPUT_MP4" 2>/dev/null || stat -f%z "$OUTPUT_MP4" 2>/dev/null) -lt 1000 ]; then
+if [ ! -f "$OUTPUT_MP4" ] || [ "$(file_size "$OUTPUT_MP4")" -lt 1000 ]; then
     echo "[ERROR] 录制失败，文件太小或不存在"
     exit 1
 fi
 
-RECORD_SIZE=$(stat -c%s "$OUTPUT_MP4" 2>/dev/null || stat -f%z "$OUTPUT_MP4" 2>/dev/null)
-echo "      录制完成: $(stat -c%s "$OUTPUT_MP4" 2>/dev/null || stat -f%z "$OUTPUT_MP4" 2>/dev/null) bytes"
+RECORD_SIZE=$(file_size "$OUTPUT_MP4")
+echo "      录制完成: $RECORD_SIZE bytes"
 
 # 步骤3: 可选 - 以 RTSP 流重放
 if [ "$DO_REPLAY" = "replay" ]; then

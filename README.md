@@ -173,8 +173,6 @@ rtsp://127.0.0.1:8554/test
 
 - `examples/quickstart-pcap-rtsp.yaml`
 
-但当前**最适合播放器正常播放验证**的路径仍然是 MP4 -> RTSP。
-
 ---
 
 ## 当前实现边界说明
@@ -253,7 +251,13 @@ rtsp://admin:secret@127.0.0.1:8554/camera
 
 ### 基于 pcap 的虚拟相机
 
-如果你有真实相机的 tcpdump 抓包文件，也可以用它创建虚拟相机：
+如果你有 H.264 RTP 的 pcap 抓包文件，也可以用它创建虚拟相机。仓库中的 `examples/virtual-camera-pcap.yaml` 默认使用：
+
+```text
+./fixtures/test_rtp_10s.pcap
+```
+
+该文件约 13MB，已验证可以重建为 4K H.264 RTSP 流并完整播放。
 
 示例配置：
 
@@ -266,29 +270,48 @@ inputs:
   - name: camera-pcap-input
     kind: pcap
     codec: h264
-    location: ./fixtures/your-camera-dump.pcap
+    location: ./fixtures/test_rtp_10s.pcap
+outputs:
+  - name: camera-pcap-rtsp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/camera
+    options:
+      auth.mode: basic
+      auth.username: camera
+      auth.password: secret
+      playback.loop: false
 ```
 
-使用方式：
+如果要从本地 MP4 重新生成一个 10MB 左右的 RTP pcap，可以使用脚本。抓包需要系统权限，脚本不会保存 sudo 密码，必须由你在终端以 sudo 调用：
 
-1. 用 `tcpdump` 或 Wireshark 抓取真实相机的 RTP/RTSP 流量：
-   ```bash
-   tcpdump -i en0 -w camera-dump.pcap host <camera-ip>
-   ```
+```bash
+sudo ./scripts/pcap-tool.sh capture ./fixtures/test_video_10s.mp4 ./fixtures/rtp_capture_10m.pcap 10
+```
 
-2. 把 pcap 文件放到 `fixtures/` 或任意路径。
+脚本兼容 Linux 和 macOS：本机回环抓包会自动选择 `lo` / `lo0`，端口清理会优先使用当前系统可用的 `fuser` 或 `lsof`。
 
-3. 修改 `examples/virtual-camera-pcap.yaml` 的 `location` 指向你的 pcap 文件。
+然后把 `examples/virtual-camera-pcap.yaml` 里的 `location` 改成生成出来的 pcap 路径。
 
-4. 启动虚拟相机：
-   ```bash
-   go run ./cmd/stream-source-tester -config ./examples/virtual-camera-pcap.yaml
-   ```
+启动虚拟相机：
 
-5. 用 VLC 带凭据连接：
-   ```text
-   rtsp://camera:secret@127.0.0.1:8555/camera
-   ```
+```bash
+go build ./cmd/stream-source-tester
+./stream-source-tester -config ./examples/virtual-camera-pcap.yaml
+```
+
+用 VLC 打开（带凭据）：
+
+```text
+rtsp://camera:secret@127.0.0.1:8555/camera
+```
+
+也可以用 ffmpeg 拉完整个回放并丢弃输出：
+
+```bash
+ffmpeg -rtsp_transport udp -i rtsp://camera:secret@127.0.0.1:8555/camera -an -f null -
+```
+
+本机验证结果：`fixtures/test_rtp_10s.pcap` 启动后生成 `timeline=11255`，ffmpeg 可自然退出，最终解到约 `10.21s / 614` 帧。
 
 这样你就可以把真实相机的抓包"重放"成一个带鉴权的虚拟 RTSP 相机，用于测试客户端的鉴权、重连、参数协商等行为。
 

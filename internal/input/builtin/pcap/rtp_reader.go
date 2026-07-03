@@ -81,13 +81,13 @@ func ReadRTPPackets(pcapPath string) ([]RTPPacket, error) {
 		}
 
 		// Parse link layer (Ethernet, SLL, etc.)
-		offset, err := skipLinkLayer(packetData, parsed.LinkType)
+		linkOffset, err := skipLinkLayer(packetData, parsed.LinkType)
 		if err != nil {
 			continue
 		}
 
 		// Parse IP header
-		offset, ipProto, err := skipIPHeader(packetData[offset:])
+		ipHeaderLen, ipProto, err := skipIPHeader(packetData[linkOffset:])
 		if err != nil {
 			continue
 		}
@@ -97,14 +97,20 @@ func ReadRTPPackets(pcapPath string) ([]RTPPacket, error) {
 			continue
 		}
 
-		// Skip UDP header (8 bytes)
-		offset += 8
-		if offset >= len(packetData) {
+		udpOffset := linkOffset + ipHeaderLen
+		if len(packetData) < udpOffset+8 {
+			continue
+		}
+		dstPort := binary.BigEndian.Uint16(packetData[udpOffset+2 : udpOffset+4])
+		if looksLikeRTCPPort(dstPort) {
 			continue
 		}
 
+		// Skip UDP header (8 bytes)
+		payloadOffset := udpOffset + 8
+
 		// Parse RTP header
-		rtpData := packetData[offset:]
+		rtpData := packetData[payloadOffset:]
 		rtp, err := parseRTPHeader(rtpData)
 		if err != nil {
 			continue
@@ -118,6 +124,11 @@ func ReadRTPPackets(pcapPath string) ([]RTPPacket, error) {
 	}
 
 	return packets, nil
+}
+
+func looksLikeRTCPPort(port uint16) bool {
+	// RTP commonly uses an even port and RTCP uses the next odd port.
+	return port%2 == 1
 }
 
 // skipLinkLayer skips the link layer header based on link type.
@@ -137,7 +148,7 @@ func skipLinkLayer(data []byte, linkType uint32) (int, error) {
 		}
 		return etherTypeOff + 2, nil
 
-	case 101: // Linux cooked-mode (SLL)
+	case 113: // Linux cooked-mode (SLL)
 		if len(data) < 16 {
 			return 0, ErrInvalidPacket
 		}
@@ -146,7 +157,7 @@ func skipLinkLayer(data []byte, linkType uint32) (int, error) {
 		}
 		return 16, nil
 
-	case 104: // Linux cooked-mode v2 (SLL2)
+	case 276: // Linux cooked-mode v2 (SLL2)
 		if len(data) < 20 {
 			return 0, ErrInvalidPacket
 		}
@@ -155,8 +166,15 @@ func skipLinkLayer(data []byte, linkType uint32) (int, error) {
 		}
 		return 20, nil
 
-	case 228: // Raw IP (no link layer)
+	case 101, 228: // Raw IP / IPv4 (no link layer)
 		return 0, nil
+
+	case 0: // BSD loopback (NULL)
+		if len(data) < 4 {
+			return 0, ErrInvalidPacket
+		}
+		// Skip 4-byte address family header
+		return 4, nil
 
 	default:
 		return 0, fmt.Errorf("%w: link type %d", ErrUnsupportedLink, linkType)
@@ -182,12 +200,13 @@ func skipIPHeader(data []byte) (int, uint8, error) {
 
 // parseRTPHeader parses an RTP packet header.
 // RTP header structure (no extension):
-//   0: V(2) P(1) X(1) CC(4)
-//   1: M(1) PT(7)
-//   2-3: Sequence Number (16 bits, big-endian)
-//   4-7: Timestamp (32 bits, big-endian)
-//   8-11: SSRC (32 bits, big-endian)
-//   12+: CSRC + Extension + Payload
+//
+//	0: V(2) P(1) X(1) CC(4)
+//	1: M(1) PT(7)
+//	2-3: Sequence Number (16 bits, big-endian)
+//	4-7: Timestamp (32 bits, big-endian)
+//	8-11: SSRC (32 bits, big-endian)
+//	12+: CSRC + Extension + Payload
 func parseRTPHeader(data []byte) (RTPPacket, error) {
 	if len(data) < 12 {
 		return RTPPacket{}, fmt.Errorf("RTP header too short: %d bytes", len(data))
@@ -249,6 +268,10 @@ func BuildSessionBundleFromPackets(packets []RTPPacket, name string) (*model.Ses
 	if len(packets) == 0 {
 		return nil, ErrNoRTPPackets
 	}
+	packets = selectPrimaryRTPFlow(packets)
+	if len(packets) == 0 {
+		return nil, ErrNoRTPPackets
+	}
 
 	pt := packets[0].PayloadType
 	codec := codecFromPayloadType(pt)
@@ -272,12 +295,12 @@ func BuildSessionBundleFromPackets(packets []RTPPacket, name string) (*model.Ses
 	for _, pkt := range packets {
 		elapsed := pkt.CapturedAt.Sub(firstCapture)
 		events = append(events, model.PacketEvent{
-			StreamID:   stream.ID,
-			Sequence:   pkt.Sequence,
-			Timestamp:  pkt.Timestamp,
-			Marker:     pkt.Marker,
-			Payload:    pkt.Payload,
-			EmittedAt:  elapsed,
+			StreamID:  stream.ID,
+			Sequence:  pkt.Sequence,
+			Timestamp: pkt.Timestamp,
+			Marker:    pkt.Marker,
+			Payload:   pkt.Payload,
+			EmittedAt: elapsed,
 		})
 	}
 
@@ -292,6 +315,30 @@ func BuildSessionBundleFromPackets(packets []RTPPacket, name string) (*model.Ses
 	bundle.Metadata["rtp.first_timestamp"] = fmt.Sprintf("%d", firstTimestamp)
 
 	return bundle, nil
+}
+
+func selectPrimaryRTPFlow(packets []RTPPacket) []RTPPacket {
+	type flowKey struct {
+		payloadType uint8
+		ssrc        uint32
+	}
+	counts := make(map[flowKey]int)
+	var best flowKey
+	for i, pkt := range packets {
+		key := flowKey{payloadType: pkt.PayloadType, ssrc: pkt.SSRC}
+		counts[key]++
+		if i == 0 || counts[key] > counts[best] {
+			best = key
+		}
+	}
+
+	selected := make([]RTPPacket, 0, counts[best])
+	for _, pkt := range packets {
+		if pkt.PayloadType == best.payloadType && pkt.SSRC == best.ssrc {
+			selected = append(selected, pkt)
+		}
+	}
+	return selected
 }
 
 func codecFromPayloadType(pt uint8) model.Codec {

@@ -8,10 +8,9 @@ import (
 	"stream-source-tester/internal/model"
 )
 
-// sendTimeline loops continuously, sending timeline packets at their original timing
-// and repeating when finished (simulating a live camera stream).
-// It only returns when the context is cancelled.
-func sendTimeline(ctx context.Context, bundle *model.SessionBundle, target string) {
+// sendTimeline sends timeline packets at their original timing. When loop is
+// true it repeats continuously to simulate a live camera stream.
+func sendTimeline(ctx context.Context, bundle *model.SessionBundle, target string, loop bool) {
 	if len(bundle.Streams) == 0 || len(bundle.Timeline) == 0 {
 		return
 	}
@@ -26,6 +25,17 @@ func sendTimeline(ctx context.Context, bundle *model.SessionBundle, target strin
 	defer conn.Close()
 
 	stream := bundle.Streams[0]
+	firstTimestamp := bundle.Timeline[0].Timestamp
+	lastTimestamp := bundle.Timeline[len(bundle.Timeline)-1].Timestamp
+	timestampStep := lastTimestamp - firstTimestamp + uint32(stream.ClockRate/30)
+	if timestampStep == 0 {
+		timestampStep = uint32(stream.ClockRate)
+	}
+	sequenceStep := uint16(len(bundle.Timeline))
+	if sequenceStep == 0 {
+		sequenceStep = 1
+	}
+	var loopIndex uint32
 
 	for {
 		start := time.Now()
@@ -43,7 +53,10 @@ func sendTimeline(ctx context.Context, bundle *model.SessionBundle, target strin
 				time.Sleep(wait)
 			}
 
-			packet := encodeBridgePacket(stream, event)
+			outEvent := event
+			outEvent.Timestamp = event.Timestamp + timestampStep*loopIndex
+			outEvent.Sequence = event.Sequence + uint16(loopIndex)*sequenceStep
+			packet := encodeBridgePacket(stream, outEvent)
 			_, err := conn.Write(packet)
 			if err != nil {
 				return
@@ -60,6 +73,10 @@ func sendTimeline(ctx context.Context, bundle *model.SessionBundle, target strin
 				time.Sleep(remaining)
 			}
 		}
+		if !loop {
+			return
+		}
+		loopIndex++
 	}
 }
 

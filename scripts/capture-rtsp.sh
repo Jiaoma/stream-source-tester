@@ -1,21 +1,28 @@
 #!/bin/bash
 # capture-rtsp.sh - 捕获 RTSP/RTP 流量为 PCAP 文件
-# 用法: ./scripts/capture-rtsp.sh [输出文件] [持续秒数] [目标IP]
+# 用法: ./scripts/capture-rtsp.sh [输出文件] [持续秒数] [目标IP] [接口]
 #   输出文件: 默认为 ./fixtures/captured.pcap
 #   持续秒数: 默认为 30 秒
 #   目标IP: RTSP 服务器 IP，默认为 192.168.3.109
+#   接口: 默认自动选择到目标 IP 的路由接口
 
 set -e
+
+WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$WORK_DIR/scripts/lib.sh"
 
 OUTPUT="${1:-./fixtures/captured.pcap}"
 DURATION="${2:-30}"
 TARGET_IP="${3:-192.168.3.109}"
-INTERFACE="eno1"
+INTERFACE="${4:-$(default_route_if "$TARGET_IP")}"
 
-# 检查权限
-if ! whoami | grep -q root; then
-    echo "[WARNING] tcpdump 需要 root 权限，正在使用 sudo..."
+if [ -z "$INTERFACE" ]; then
+    echo "[ERROR] 无法自动选择抓包接口，请显式指定:"
+    echo "  sudo $0 $OUTPUT $DURATION $TARGET_IP <interface>"
+    exit 1
 fi
+
+require_root "抓包" "$@"
 
 echo "=============================================="
 echo "RTSP/RTP 流量捕获脚本"
@@ -37,7 +44,7 @@ mkdir -p "$(dirname "$OUTPUT")"
 echo "开始捕获... (Ctrl+C 提前停止)"
 echo ""
 
-sudo tcpdump -i "$INTERFACE" \
+tcpdump -i "$INTERFACE" \
     -w "$OUTPUT" \
     -v \
     "((ip.src == $TARGET_IP or ip.dst == $TARGET_IP) and (tcp port 554 or udp portrange 3000-30000))" \

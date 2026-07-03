@@ -1,14 +1,19 @@
 #!/bin/bash
 # generate-rtp-pcap.sh - 用 ffmpeg 从 MP4 生成带 RTP 的 pcap 文件
 # 原理: 启动 RTSP 服务器 -> tcpdump 抓 UDP 流量 -> ffmpeg 拉流触发 RTP 发送
-# sudo 密码: yahboom
 
 set -e
+
+WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+. "$WORK_DIR/scripts/lib.sh"
 
 MP4_FILE="${1:-./fixtures/test_video.mp4}"
 OUTPUT_PCAP="${2:-./fixtures/rtp_stream.pcap}"
 DURATION="${3:-10}"
 RTSP_PORT=8554
+LOOPBACK_IF="$(loopback_if)"
+
+require_root "抓包" "$@"
 
 echo "=============================================="
 echo "RTSP/RTP 流量抓包工具"
@@ -17,6 +22,7 @@ echo "MP4 文件:   $MP4_FILE"
 echo "输出 PCAP:  $OUTPUT_PCAP"
 echo "抓包时长:   ${DURATION}秒"
 echo "RTSP 端口:  $RTSP_PORT"
+echo "抓包接口:   $LOOPBACK_IF"
 echo "=============================================="
 
 if [ ! -f "$MP4_FILE" ]; then
@@ -26,11 +32,10 @@ fi
 
 # 清理残留进程
 pkill -9 stream-source 2>/dev/null || true
-fuser -k $RTSP_PORT/tcp 2>/dev/null || true
+stop_port_listener "$RTSP_PORT"
 sleep 1
 
 # 生成临时 RTSP 配置
-WORK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cat > /tmp/gen-rtp-rtsp.yaml << EOF
 name: gen-rtp-rtsp
 server:
@@ -71,18 +76,18 @@ echo "      OK (PID: $SERVER_PID)"
 
 # 步骤2: tcpdump 抓 UDP 流量
 echo "[2/3] 开始抓包..."
-echo 'yahboom' | sudo -S tcpdump -i lo -w "$OUTPUT_PCAP" "udp" 2>/dev/null &
+tcpdump -i "$LOOPBACK_IF" -w "$OUTPUT_PCAP" "udp" 2>/dev/null &
 TCPDUMP_PID=$!
 sleep 1
 
 # 步骤3: ffprobe 触发拉流（触发 RTSP 服务器发送 RTP）
 echo "[3/3] 触发 RTSP 拉流 (${DURATION}秒)..."
-timeout ${DURATION} ffprobe -v quiet -show_streams "rtsp://127.0.0.1:$RTSP_PORT/test" >/dev/null 2>&1 || true
+run_with_timeout "$DURATION" ffprobe -v quiet -show_streams "rtsp://127.0.0.1:$RTSP_PORT/test" >/dev/null 2>&1 || true
 sleep 1
 
 # 停止所有进程
 echo "      停止抓包..."
-sudo kill $TCPDUMP_PID 2>/dev/null || echo 'yahboom' | sudo -S kill $TCPDUMP_PID 2>/dev/null
+kill $TCPDUMP_PID 2>/dev/null || true
 kill $SERVER_PID 2>/dev/null || true
 wait 2>/dev/null
 
@@ -96,21 +101,21 @@ if [ ! -f "$OUTPUT_PCAP" ]; then
     exit 1
 fi
 
-PCAP_SIZE=$(stat -c%s "$OUTPUT_PCAP" 2>/dev/null || stat -f%z "$OUTPUT_PCAP" 2>/dev/null)
+PCAP_SIZE=$(file_size "$OUTPUT_PCAP")
 echo "文件大小: $PCAP_SIZE bytes"
 
 # 统计包数量
-UDP_COUNT=$(echo 'yahboom' | sudo -S tcpdump -r "$OUTPUT_PCAP" -n 2>&1 | grep -c "UDP")
+UDP_COUNT=$(tcpdump -r "$OUTPUT_PCAP" -n 2>&1 | grep -c "UDP")
 echo "UDP 包数: $UDP_COUNT"
 
 # 检查 RTP 包（端口 5004/5005 是 RTP/RTCP 标准端口）
-RTP_COUNT=$(echo 'yahboom' | sudo -S tcpdump -r "$OUTPUT_PCAP" -n 2>&1 | grep -c "5004\|5005")
+RTP_COUNT=$(tcpdump -r "$OUTPUT_PCAP" -n 2>&1 | grep -c "5004\|5005")
 echo "RTP/RTCP 包数 (端口 5004-5005): $RTP_COUNT"
 
 # 显示前几行
 echo ""
 echo "包预览 (前10行):"
-echo 'yahboom' | sudo -S tcpdump -r "$OUTPUT_PCAP" -n 2>&1 | head -10
+tcpdump -r "$OUTPUT_PCAP" -n 2>&1 | head -10
 
 echo ""
 if [ "$UDP_COUNT" -gt 10 ]; then
