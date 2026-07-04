@@ -27,13 +27,14 @@ const (
 )
 
 type SessionBundle struct {
-	Name        string
-	Description string
-	Transport   []Protocol
-	Streams     []Stream
-	Timeline    []PacketEvent
-	Script      *RTSPScript
-	Metadata    map[string]string
+	Name          string
+	Description   string
+	Transport     []Protocol
+	Streams       []Stream
+	Timeline      []PacketEvent
+	Script        *RTSPScript
+	Metadata      map[string]string
+	CaptureOffset time.Duration // offset applied to capture timestamps during replay (microsecond precision)
 }
 
 type Stream struct {

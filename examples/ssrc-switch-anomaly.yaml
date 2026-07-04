@@ -1,0 +1,132 @@
+# SSRC Switch Anomaly Test Scenarios
+# Tests mid-stream SSRC switching mutations
+# Tests behavior when SSRC changes unexpectedly during playback
+
+name: ssrc-switch-anomaly
+server:
+  rtspPort: 8554
+
+inputs:
+  - name: sample-mp4
+    kind: mp4
+    codec: h264
+    location: ./fixtures/sample.mp4
+
+outputs:
+  - name: rtsp-ssrc-immediate
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/ssrc-immediate
+    options: {}
+
+  - name: rtsp-ssrc-gradual
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/ssrc-gradual
+    options: {}
+
+  - name: rtsp-ssrc-burst
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/ssrc-burst
+    options: {}
+
+  - name: rtsp-ssrc-early
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/ssrc-early
+    options: {}
+
+  - name: rtsp-ssrc-late
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/ssrc-late
+    options: {}
+
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+
+  # Immediate SSRC switch at packet 100
+  - name: ssrc-switch-immediate
+    kind: switch-ssrc
+    enabled: true
+    options:
+      ssrc.switch.at: "100"
+      ssrc.switch.to: "0x12345678"
+      ssrc.switch.mode: "immediate"
+      ssrc.switch.count: "1"
+
+  # Gradual SSRC transition over 20 packets
+  - name: ssrc-switch-gradual
+    kind: switch-ssrc
+    enabled: true
+    options:
+      ssrc.switch.at: "100"
+      ssrc.switch.to: "0xDEADBEEF"
+      ssrc.switch.mode: "gradual"
+      ssrc.switch.count: "1"
+      ssrc.switch.transition-packets: "20"
+
+  # Burst mode: duplicate packets with new SSRC
+  - name: ssrc-switch-burst
+    kind: switch-ssrc
+    enabled: true
+    options:
+      ssrc.switch.at: "100"
+      ssrc.switch.to: "0xABCD0001"
+      ssrc.switch.mode: "burst"
+      ssrc.switch.count: "1"
+      ssrc.switch.burst-count: "5"
+
+  # Early SSRC switch at packet 10
+  - name: ssrc-switch-early
+    kind: switch-ssrc
+    enabled: true
+    options:
+      ssrc.switch.at: "10"
+      ssrc.switch.to: "0x11111111"
+      ssrc.switch.mode: "immediate"
+      ssrc.switch.count: "1"
+
+  # Late SSRC switch at packet 500
+  - name: ssrc-switch-late
+    kind: switch-ssrc
+    enabled: true
+    options:
+      ssrc.switch.at: "500"
+      ssrc.switch.to: "0x22222222"
+      ssrc.switch.mode: "immediate"
+      ssrc.switch.count: "1"
+
+profiles:
+  # Immediate SSRC switch mid-stream
+  # Expected: Some players may freeze, stutter, or resync
+  - name: ssrc-immediate
+    input: sample-mp4
+    output: rtsp-ssrc-immediate
+    mutations: [ssrc-switch-immediate]
+
+  # Gradual SSRC transition
+  # Expected: Smooth transition, player may adapt
+  - name: ssrc-gradual
+    input: sample-mp4
+    output: rtsp-ssrc-gradual
+    mutations: [ssrc-switch-gradual]
+
+  # Burst mode with duplicate packets
+  # Expected: Brief duplication artifacts
+  - name: ssrc-burst
+    input: sample-mp4
+    output: rtsp-ssrc-burst
+    mutations: [ssrc-switch-burst]
+
+  # Early switch (near start)
+  # Expected: Player may resync or show brief artifacts
+  - name: ssrc-early
+    input: sample-mp4
+    output: rtsp-ssrc-early
+    mutations: [ssrc-switch-early]
+
+  # Late switch (near end)
+  # Expected: Player may finish without issues or show brief artifacts
+  - name: ssrc-late
+    input: sample-mp4
+    output: rtsp-ssrc-late
+    mutations: [ssrc-switch-late]

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"time"
 
 	"stream-source-tester/internal/model"
@@ -273,6 +274,11 @@ func BuildSessionBundleFromPackets(packets []RTPPacket, name string) (*model.Ses
 		return nil, ErrNoRTPPackets
 	}
 
+	// Sort by RTP timestamp (not capture time).
+	sort.Slice(packets, func(i, j int) bool {
+		return packets[i].Timestamp < packets[j].Timestamp
+	})
+
 	pt := packets[0].PayloadType
 	codec := codecFromPayloadType(pt)
 	ssrc := packets[0].SSRC
@@ -287,20 +293,24 @@ func BuildSessionBundleFromPackets(packets []RTPPacket, name string) (*model.Ses
 		Parameters:  map[string]string{},
 	}
 
-	// Compute relative EmittedAt from the first packet's capture time.
+	// Compute relative EmittedAt from the first packet's RTP timestamp using clock rate.
 	firstCapture := packets[0].CapturedAt
 	firstTimestamp := packets[0].Timestamp
+	clockRate := stream.ClockRate
 
 	events := make([]model.PacketEvent, 0, len(packets))
 	for _, pkt := range packets {
-		elapsed := pkt.CapturedAt.Sub(firstCapture)
+		rtpDelta := int64(pkt.Timestamp) - int64(firstTimestamp)
+		emittedAt := time.Duration(rtpDelta) * (time.Second / time.Duration(clockRate))
+		receivedAt := pkt.CapturedAt.Sub(firstCapture)
 		events = append(events, model.PacketEvent{
-			StreamID:  stream.ID,
-			Sequence:  pkt.Sequence,
-			Timestamp: pkt.Timestamp,
-			Marker:    pkt.Marker,
-			Payload:   pkt.Payload,
-			EmittedAt: elapsed,
+			StreamID:   stream.ID,
+			Sequence:   pkt.Sequence,
+			Timestamp:  pkt.Timestamp,
+			Marker:     pkt.Marker,
+			Payload:    pkt.Payload,
+			EmittedAt:  emittedAt,
+			ReceivedAt: receivedAt,
 		})
 	}
 
@@ -312,6 +322,14 @@ func BuildSessionBundleFromPackets(packets []RTPPacket, name string) (*model.Ses
 	bundle.Metadata["rtp.packet_count"] = fmt.Sprintf("%d", len(packets))
 	bundle.Metadata["rtp.ssrc"] = fmt.Sprintf("0x%08x", ssrc)
 	bundle.Metadata["rtp.payload_type"] = fmt.Sprintf("%d", pt)
+	bundle.Metadata["replay.mode"] = "rtp-timestamp"
+	bundle.Metadata["rtp.first_timestamp_rtp"] = fmt.Sprintf("%d", firstTimestamp)
+	bundle.Metadata["rtp.clock_rate"] = fmt.Sprintf("%d", clockRate)
+
+	const ntpEpoch = 2208988800 // seconds between 1900-01-01 and 1970-01-01
+	ntpSec := uint32(firstCapture.Unix()) + ntpEpoch
+	frac := uint32((int64(firstCapture.Nanosecond()) * 0x100000000) / 1e9)
+	bundle.Metadata["capture_start_ntp"] = fmt.Sprintf("%d", uint64(ntpSec)<<32|uint64(frac))
 	bundle.Metadata["rtp.first_timestamp"] = fmt.Sprintf("%d", firstTimestamp)
 
 	return bundle, nil

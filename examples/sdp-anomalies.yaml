@@ -1,0 +1,207 @@
+# SDP Anomalies Test Scenarios
+# Tests fine-grained SDP/fmtp control and various anomalous configurations.
+name: sdp-anomalies
+server:
+  rtspPort: 8555
+  rtpPortMin: 5000
+  rtpPortMax: 6000
+
+inputs:
+  # Basic H264 source
+  - name: h264-source
+    kind: pcap
+    codec: h264
+    location: ./fixtures/h264.pcap
+
+  # H265 source
+  - name: h265-source
+    kind: pcap
+    codec: h265
+    location: ./fixtures/h265.pcap
+
+  # MJPEG source
+  - name: mjpeg-source
+    kind: pcap
+    codec: mjpeg
+    location: ./fixtures/mjpeg.pcap
+
+outputs:
+  # Test 1: Missing fmtp fields — H264 without profile-level-id or packetization-mode
+  - name: rtsp-missing-fmtp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/missing-fmtp
+    options:
+      # Stream parameters will have empty fmtp — tests client handling of missing fields
+
+  # Test 2: Malformed fmtp values — invalid base16 in profile-level-id
+  - name: rtsp-malformed-fmtp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/malformed-fmtp
+    options:
+      sdp.profile-level-id: "not-valid-hex"
+      sdp.packetization-mode: "99"  # invalid, valid values are 0-2
+      sdp.max-mbps: "not-a-number"
+
+  # Test 3: Different profile-level-id combinations
+  - name: rtsp-baseline-profile
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/baseline
+    options:
+      sdp.profile-level-id: "42e01f"  # Baseline profile, level 3.1
+      sdp.packetization-mode: "1"
+
+  - name: rtsp-main-profile
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/main
+    options:
+      sdp.profile-level-id: "4d401f"  # Main profile, level 3.1
+      sdp.packetization-mode: "1"
+
+  - name: rtsp-high-profile
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/high
+    options:
+      sdp.profile-level-id: "64001f"  # High profile, level 3.1
+      sdp.packetization-mode: "1"
+
+  # Test 4: Custom SDP session name and origin line
+  - name: rtsp-custom-session
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/custom-session
+    options:
+      sdp.session-name: "CustomCameraStream-2024"
+      sdp.o: "- 987654321 0 IN IP4 10.0.1.50"
+
+  # Test 5: IPv6 connection
+  - name: rtsp-ipv6-connection
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/ipv6
+    options:
+      sdp.connection: "IN IP6"
+
+  # Test 6: H265 with explicit fmtp overrides
+  - name: rtsp-h265-fmtp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/h265-fmtp
+    options:
+      sdp.profile-id: "2"  # Main profile
+      sdp.tier-flag: "0"
+      sdp.level-id: "78"   # Level 3.1
+      sdp.profile-space: "0"
+
+  # Test 7: MJPEG with explicit fmtp overrides
+  - name: rtsp-mjpeg-fmtp
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/mjpeg-fmtp
+    options:
+      sdp.type: "1"
+      sdp.width: "1920"
+      sdp.height: "1080"
+      sdp.depth: "8"
+
+  # Test 8: sprop-parameter-sets override for H264
+  - name: rtsp-sprops-override
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/sprops
+    options:
+      sdp.sprop-parameter-sets: "Z00AHp0VhaNCI,aM44gXBA"
+      sdp.profile-level-id: "42e01f"
+
+  # Test 9: Multiple SDP options combined
+  - name: rtsp-combined-options
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/combined
+    options:
+      sdp.session-name: "MultiOptionStream"
+      sdp.o: "- 11111 22222 IN IP4 192.168.1.100"
+      sdp.connection: "IN IP4"
+      sdp.profile-level-id: "42c00a"
+      sdp.packetization-mode: "0"
+      sdp.max-mbps: "245760"
+      sdp.max-smbps: "245760"
+
+  # Test 10: Packetization mode 0 (non-interleaved)
+  - name: rtsp-pkg-mode-0
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/pkg-mode-0
+    options:
+      sdp.profile-level-id: "42e01f"
+      sdp.packetization-mode: "0"
+
+  # Test 11: clock-rate override
+  - name: rtsp-clock-override
+    kind: rtsp
+    target: rtsp://127.0.0.1:8555/clock-override
+    options:
+      sdp.clock-rate: "90000"
+
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+
+profiles:
+  - name: test-missing-fmtp
+    input: h264-source
+    output: rtsp-missing-fmtp
+    mutations: [passthrough]
+
+  - name: test-malformed-fmtp
+    input: h264-source
+    output: rtsp-malformed-fmtp
+    mutations: [passthrough]
+
+  - name: test-baseline-profile
+    input: h264-source
+    output: rtsp-baseline-profile
+    mutations: [passthrough]
+
+  - name: test-main-profile
+    input: h264-source
+    output: rtsp-main-profile
+    mutations: [passthrough]
+
+  - name: test-high-profile
+    input: h264-source
+    output: rtsp-high-profile
+    mutations: [passthrough]
+
+  - name: test-custom-session
+    input: h264-source
+    output: rtsp-custom-session
+    mutations: [passthrough]
+
+  - name: test-ipv6
+    input: h264-source
+    output: rtsp-ipv6-connection
+    mutations: [passthrough]
+
+  - name: test-h265-fmtp
+    input: h265-source
+    output: rtsp-h265-fmtp
+    mutations: [passthrough]
+
+  - name: test-mjpeg-fmtp
+    input: mjpeg-source
+    output: rtsp-mjpeg-fmtp
+    mutations: [passthrough]
+
+  - name: test-sprops
+    input: h264-source
+    output: rtsp-sprops-override
+    mutations: [passthrough]
+
+  - name: test-combined
+    input: h264-source
+    output: rtsp-combined-options
+    mutations: [passthrough]
+
+  - name: test-pkg-mode-0
+    input: h264-source
+    output: rtsp-pkg-mode-0
+    mutations: [passthrough]
+
+  - name: test-clock-override
+    input: h264-source
+    output: rtsp-clock-override
+    mutations: [passthrough]

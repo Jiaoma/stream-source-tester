@@ -84,6 +84,7 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 		defer conn.Close()
 		reader := bufio.NewReader(conn)
 		state := &sessionState{}
+		defer state.stopPlayback()
 		for {
 			req, err := readRequestFromReader(reader)
 			if err != nil {
@@ -133,6 +134,7 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 				}
 				state.playing = true
 				_, _ = conn.Write([]byte(okResponseFor(req, bundle, sessionID)))
+				state.stopPlayback()
 				if state.transport != nil && state.transport.LowerTransport == "tcp" {
 					channel := state.transport.Interleaved
 					if channel == "" {
@@ -156,19 +158,14 @@ func (s *Sink) Serve(ctx context.Context, bundle *model.SessionBundle, cfg confi
 							}
 						}
 					}
-					sendTimeline(ctx, bundle, target, loopPlayback)
-					if !loopPlayback {
-						return
-					}
+					playbackCtx, stopPlayback := context.WithCancel(ctx)
+					state.playbackStop = stopPlayback
+					go sendTimeline(playbackCtx, bundle, target, loopPlayback)
 				}
 			case "TEARDOWN":
 				state.tornDown = true
 				_, _ = conn.Write([]byte(okResponseFor(req, bundle, sessionID)))
-				if state.ffmpeg != nil && state.ffmpeg.Process != nil {
-					_ = state.ffmpeg.Process.Kill()
-					_, _ = state.ffmpeg.Process.Wait()
-					state.ffmpeg = nil
-				}
+				state.stopPlayback()
 				session.SetState(output.StateStopped)
 				_ = session.Close()
 				return

@@ -1,0 +1,131 @@
+# Payload Type Switch Anomaly Test Scenarios
+# Tests mid-stream Payload Type switching mutations
+# Tests behavior when PT changes unexpectedly during playback
+
+name: pt-switch-anomaly
+server:
+  rtspPort: 8554
+
+inputs:
+  - name: sample-mp4
+    kind: mp4
+    codec: h264
+    location: ./fixtures/sample.mp4
+
+outputs:
+  - name: rtsp-pt-immediate
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/pt-immediate
+    options: {}
+
+  - name: rtsp-pt-alternate
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/pt-alternate
+    options: {}
+
+  - name: rtsp-pt-early
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/pt-early
+    options: {}
+
+  - name: rtsp-pt-late
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/pt-late
+    options: {}
+
+  - name: rtsp-pt-multiple
+    kind: rtsp
+    target: rtsp://127.0.0.1:8554/pt-multiple
+    options: {}
+
+mutations:
+  - name: passthrough
+    kind: identity
+    enabled: true
+
+  # Immediate PT switch at packet 100 from 96 to 99
+  - name: pt-switch-immediate
+    kind: switch-payloadtype
+    enabled: true
+    options:
+      pt.switch.at: "100"
+      pt.switch.to: "99"
+      pt.switch.mode: "immediate"
+      pt.switch.count: "1"
+
+  # Alternate mode: switch between old and new PT every 30 packets
+  - name: pt-switch-alternate
+    kind: switch-payloadtype
+    enabled: true
+    options:
+      pt.switch.at: "100"
+      pt.switch.to: "97"
+      pt.switch.mode: "alternate"
+      pt.switch.count: "1"
+      pt.switch.alternate-interval: "30"
+
+  # Early PT switch at packet 10
+  - name: pt-switch-early
+    kind: switch-payloadtype
+    enabled: true
+    options:
+      pt.switch.at: "10"
+      pt.switch.to: "100"
+      pt.switch.mode: "immediate"
+      pt.switch.count: "1"
+
+  # Late PT switch at packet 500
+  - name: pt-switch-late
+    kind: switch-payloadtype
+    enabled: true
+    options:
+      pt.switch.at: "500"
+      pt.switch.to: "101"
+      pt.switch.mode: "immediate"
+      pt.switch.count: "1"
+
+  # Multiple PT switches
+  - name: pt-switch-multiple
+    kind: switch-payloadtype
+    enabled: true
+    options:
+      pt.switch.at: "100"
+      pt.switch.to: "99"
+      pt.switch.mode: "immediate"
+      pt.switch.count: "3"
+
+profiles:
+  # Immediate PT switch mid-stream
+  # Expected: Some players may freeze, stutter, or misinterpret stream
+  - name: pt-immediate
+    input: sample-mp4
+    output: rtsp-pt-immediate
+    mutations: [pt-switch-immediate]
+
+  # Alternate mode between PTs
+  # Expected: Significant artifacts, player may fail to decode
+  - name: pt-alternate
+    input: sample-mp4
+    output: rtsp-pt-alternate
+    mutations: [pt-switch-alternate]
+
+  # Early PT switch (near start)
+  # Expected: Player may resync or fail to start
+  - name: pt-early
+    input: sample-mp4
+    output: rtsp-pt-early
+    mutations: [pt-switch-early]
+
+  # Late PT switch (near end)
+  # Expected: Player may finish without issues or show brief artifacts
+  - name: pt-late
+    input: sample-mp4
+    output: rtsp-pt-late
+    mutations: [pt-switch-late]
+
+  # Multiple PT switches
+  # Expected: Player may freeze or show significant artifacts
+  - name: pt-multiple
+    input: sample-mp4
+    output: rtsp-pt-multiple
+    mutations: [pt-switch-multiple]

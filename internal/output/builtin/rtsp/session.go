@@ -1,6 +1,9 @@
 package rtsp
 
-import "os/exec"
+import (
+	"context"
+	"os/exec"
+)
 
 type sessionState struct {
 	described     bool
@@ -11,5 +14,18 @@ type sessionState struct {
 	rtpTarget     string
 	transport     *transportInfo
 	ffmpeg        *exec.Cmd
+	playbackStop  context.CancelFunc
 	parameters    map[string]string
+}
+
+func (s *sessionState) stopPlayback() {
+	if s.playbackStop != nil {
+		s.playbackStop()
+		s.playbackStop = nil
+	}
+	if s.ffmpeg != nil && s.ffmpeg.Process != nil {
+		_ = s.ffmpeg.Process.Kill()
+		_, _ = s.ffmpeg.Process.Wait()
+		s.ffmpeg = nil
+	}
 }
